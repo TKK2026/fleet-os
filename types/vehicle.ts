@@ -15,6 +15,7 @@ export type Vehicle = {
   aa_price: number | null
   priority: string
   km: number | null
+  year?: number
   color: string
   dep_monthly: number
   note?: string
