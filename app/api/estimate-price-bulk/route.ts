@@ -1,29 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// 全台一括 AA相場推定
-// 34台分を1回のClaudeリクエストで送信し、JSON配列で全台の推定値を受け取る。
-// APIキーはサーバー側のみ（クライアント非露出）。
-
-export const dynamic = 'force-dynamic'
-
-type BulkVehicle = {
+type VehicleInput = {
   no: number
   name: string
-  year?: number
-  km?: number | null
-  acquired?: string
-  cost?: number
+  acquired: string
+  km: number | null
+  cost: number
+  subsidy: number
 }
-
-type BulkEstimate = {
-  no: number
-  estimatedAA: number
-  confidence: 'high' | 'medium' | 'low'
-  trend: 'up' | 'flat' | 'down'
-}
-
-const CONFIDENCE = new Set(['high', 'medium', 'low'])
-const TREND = new Set(['up', 'flat', 'down'])
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -34,113 +18,62 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  let vehicles: BulkVehicle[]
-  try {
-    const body = await req.json()
-    vehicles = body?.vehicles
-  } catch {
-    return NextResponse.json({ ok: false, error: 'リクエストボディが不正です。' }, { status: 400 })
-  }
+  const vehicles: VehicleInput[] = await req.json()
 
-  if (!Array.isArray(vehicles) || vehicles.length === 0) {
-    return NextResponse.json({ ok: false, error: 'vehicles 配列が必要です。' }, { status: 400 })
-  }
-
-  const rows = vehicles
-    .map(v => {
-      const year = v.year ?? (v.acquired ? new Date(v.acquired.replace(/\//g, '-')).getFullYear() : '不明')
-      const km = v.km != null ? `${v.km.toLocaleString()}km` : '不明'
-      const cost = v.cost != null ? `¥${v.cost.toLocaleString()}` : '不明'
-      return `- No.${v.no} | ${v.name} | ${year}年式 | 走行${km} | 取得日${v.acquired ?? '不明'} | 取得価額${cost}`
-    })
-    .join('\n')
+  const vehicleList = vehicles.map(v =>
+    `No.${v.no} | ${v.name} | 取得:${v.acquired} | 走行:${v.km !== null ? v.km.toLocaleString() + 'km' : '不明'} | 取得価額:¥${v.cost.toLocaleString()} | 補助金:¥${v.subsidy.toLocaleString()}`
+  ).join('\n')
 
   const prompt = `あなたは日本の中古車市場に精通したアナリストです。
-以下の${vehicles.length}台について、2026年8月時点における「AAオークション相場（業者間取引価格）」を各台推定してください。
+2026年8月時点における以下の車両それぞれの「AAオークション相場（業者間取引価格）」を推定してください。
 
-【車両リスト】
-${rows}
+【市場前提知識】
+- AA相場 = 業者間オークション（USS・TAA等）の落札価格帯。小売価格より20〜30%低い
+- BYD ATTO3（2023〜2024年式）: AA相場 130〜160万円帯。走行距離が少ないほど高い
+- BYD DOLPHIN（2023〜2024年式）: AA相場 80〜95万円帯。下落トレンド継続中
+- BYD DOLPHIN（2025年式・走行少）: AA相場 110〜130万円帯
+- BYD ATTO3（2025年式・高額版・取得価額320万円超）: AA相場 190〜210万円帯
+- BYD ATTO3（補助金なし・2025年式）: AA相場 110〜160万円帯（走行距離で変動）
+- ハイエース（2025年式）: AA相場 280〜320万円帯（需要安定）
+- EV全般: 走行3万km未満→高評価、3〜5万km→普通、5万km超→下落
+- 宮古島レンタカー: 塩害リスクで若干マイナス査定
+- BYD全般: 月次-1〜-3%の下落トレンド（2026年現在）
+- 事故車は30〜40%減額
 
-【前提知識】
-- AA相場とはUSS・TAAなどの業者間オークションの落札価格帯（小売価格より20〜30%低い）
-- BYD ATTO3（2023年式）の小売相場: 238〜339万円、AA相場: 130〜160万円帯
-- BYD DOLPHIN（2023年式）の小売相場: 175〜328万円、AA相場: 110〜145万円帯
-- BYD DOLPHIN LR（2023年式）の小売相場: 219〜319万円、AA相場: 135〜165万円帯
-- Audi Q4 e-tron（2023年式）の小売相場: 318〜489万円、AA相場: 200〜280万円帯
-- EV全般: 走行距離3万km未満は高評価、5万km超で急落する傾向
-- 下落トレンド: BYD全般は月次-1〜-3%の下落傾向（2026年現在）
-- 宮古島のレンタカーは塩害リスクがわずかにマイナス査定される場合あり
+【対象車両】
+${vehicleList}
 
-必ず全${vehicles.length}台分を、以下のJSON配列形式のみで回答してください（説明文・マークダウン不要）:
+以下のJSON配列のみで回答してください（説明文・マークダウン不要）:
 [
-  { "no": 車両No（整数）, "estimatedAA": 推定AA相場（円・整数）, "confidence": "high"|"medium"|"low", "trend": "up"|"flat"|"down" }
+  {"no": 車両No, "aa": 推定AA相場(円・整数), "min": 下限(円), "max": 上限(円), "confidence": "high"|"medium"|"low", "reason": "根拠50字以内"},
+  ...
 ]`
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'content-type': 'application/json',
+        'Content-Type': 'application/json',
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 8000,
+        max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }],
       }),
     })
 
     const data = await response.json()
-    if (!response.ok) {
-      return NextResponse.json(
-        { ok: false, error: `Claude API エラー (${response.status}): ${data?.error?.message ?? 'unknown'}` },
-        { status: 502 },
-      )
-    }
-
     const text = data.content?.[0]?.text ?? ''
-    const estimates = parseBulk(text)
-    if (!estimates) {
-      return NextResponse.json({ ok: false, error: 'モデル応答を解析できませんでした。', raw: text }, { status: 502 })
-    }
 
-    return NextResponse.json({ ok: true, estimates, count: estimates.length })
+    // JSON配列を抽出
+    const match = text.match(/\[[\s\S]*\]/)
+    if (!match) throw new Error('JSON parse failed: ' + text.slice(0, 200))
+    const results = JSON.parse(match[0])
+
+    return NextResponse.json({ ok: true, results, estimatedAt: new Date().toISOString() })
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 })
   }
-}
-
-// モデル応答からJSON配列を抽出・検証
-function parseBulk(text: string): BulkEstimate[] | null {
-  const cleaned = text.replace(/```(?:json)?/gi, '').trim()
-  const start = cleaned.indexOf('[')
-  const end = cleaned.lastIndexOf(']')
-  if (start === -1 || end === -1 || end <= start) return null
-
-  let arr: unknown
-  try {
-    arr = JSON.parse(cleaned.slice(start, end + 1))
-  } catch {
-    return null
-  }
-  if (!Array.isArray(arr)) return null
-
-  const out: BulkEstimate[] = []
-  for (const item of arr) {
-    if (typeof item !== 'object' || item === null) continue
-    const o = item as Record<string, unknown>
-    const no = typeof o.no === 'number' ? o.no : NaN
-    const estimatedAA = typeof o.estimatedAA === 'number' ? Math.round(o.estimatedAA) : NaN
-    const confidence = typeof o.confidence === 'string' ? o.confidence.toLowerCase() : ''
-    const trend = typeof o.trend === 'string' ? o.trend.toLowerCase() : 'flat'
-    if (!Number.isFinite(no) || !Number.isFinite(estimatedAA) || estimatedAA <= 0) continue
-    out.push({
-      no,
-      estimatedAA,
-      confidence: CONFIDENCE.has(confidence) ? (confidence as BulkEstimate['confidence']) : 'medium',
-      trend: TREND.has(trend) ? (trend as BulkEstimate['trend']) : 'flat',
-    })
-  }
-  return out.length > 0 ? out : null
 }

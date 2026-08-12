@@ -1,24 +1,17 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { MASTER_VEHICLES } from '@/lib/masterData'
 import { calcSale, yen, yenM } from '@/lib/calc'
-import { calcScore, scoreRating } from '@/lib/score'
 import { Vehicle, TaxSettings } from '@/types/vehicle'
 import KpiCard from './components/KpiCard'
 import PriorityBadge from './components/PriorityBadge'
 import DetailPanel from './components/DetailPanel'
 import MarketPanel from './components/MarketPanel'
 
-const SCORE_COLOR: Record<string, string> = {
-  green: 'bg-[#EAF3DE] text-[#27500A] border-[#97C459]',
-  amber: 'bg-[#FAEEDA] text-[#633806] border-[#EF9F27]',
-  blue:  'bg-[#E6F1FB] text-[#0C447C] border-[#85B7EB]',
-  red:   'bg-[#FCEBEB] text-[#791F1F] border-[#F09595]',
-}
-
 type Filter = 'all' | 'fortune' | 'kenen' | 'atto3' | 'dolphin' | 'hasaa' | 'noaa'
-type SortKey = 'no' | 'gain_desc' | 'gain_asc' | 'bv_asc' | 'km_desc' | 'priority' | 'score_desc'
+type SortKey = 'no' | 'gain_desc' | 'gain_asc' | 'bv_asc' | 'km_desc' | 'priority'
 type Tab = 'list' | 'market' | 'settings'
+type BulkStatus = 'idle' | 'loading' | 'done' | 'error'
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>('list')
@@ -37,8 +30,9 @@ export default function Home() {
     return init
   })
   const [settings, setSettings] = useState<TaxSettings>({ corp_tax: 23.2, consumption_tax: 10 })
-  const [bulkLoading, setBulkLoading] = useState(false)
-  const [bulkMsg, setBulkMsg] = useState<string | null>(null)
+  const [bulkStatus, setBulkStatus] = useState<BulkStatus>('idle')
+  const [bulkEstimatedAt, setBulkEstimatedAt] = useState<string | null>(null)
+  const [bulkError, setBulkError] = useState<string | null>(null)
 
   const vehicles: Vehicle[] = useMemo(() =>
     MASTER_VEHICLES.map(v => ({
@@ -48,6 +42,45 @@ export default function Home() {
     })),
     [aaOverride, kmOverride]
   )
+
+  // 起動時に全台一括AI推定
+  const runBulkEstimate = useCallback(async () => {
+    setBulkStatus('loading')
+    setBulkError(null)
+    try {
+      const payload = MASTER_VEHICLES.map(v => ({
+        no: v.no,
+        name: v.name,
+        acquired: v.acquired,
+        km: kmOverride[v.no] ?? v.km,
+        cost: v.cost,
+        subsidy: v.subsidy,
+      }))
+      const res = await fetch('/api/estimate-price-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!data.ok) throw new Error(data.error)
+      // 全台のAAをセット
+      const newAA: Record<number, number> = { ...aaOverride }
+      for (const r of data.results) {
+        if (r.no && r.aa && r.aa > 0) newAA[r.no] = r.aa
+      }
+      setAaOverride(newAA)
+      setBulkEstimatedAt(data.estimatedAt)
+      setBulkStatus('done')
+    } catch (e) {
+      setBulkError(String(e))
+      setBulkStatus('error')
+    }
+  }, [kmOverride])
+
+  // 画面起動時に自動実行
+  useEffect(() => {
+    runBulkEstimate()
+  }, [])
 
   const rows = useMemo(() => {
     const q = search.toLowerCase()
@@ -68,7 +101,6 @@ export default function Home() {
       if (sortKey === 'gain_asc')  return (ca.gain ?? Infinity)  - (cb.gain ?? Infinity)
       if (sortKey === 'bv_asc')    return a.book_value - b.book_value
       if (sortKey === 'km_desc')   return (b.km ?? 0) - (a.km ?? 0)
-      if (sortKey === 'score_desc') return calcScore(b).total - calcScore(a).total
       if (sortKey === 'priority') {
         const m: Record<string,number> = {'①':1,'②':2,'③':3,'④':4,'':9}
         return (m[a.priority]??9)-(m[b.priority]??9)
@@ -90,38 +122,6 @@ export default function Home() {
 
   const handleUpdateAA = (no: number, aa: number) => setAaOverride(prev=>({...prev,[no]:aa}))
   const handleUpdateKm = (no: number, km: number) => setKmOverride(prev=>({...prev,[no]:km}))
-
-  const handleBulkEstimate = async () => {
-    setBulkLoading(true)
-    setBulkMsg(null)
-    try {
-      const res = await fetch('/api/estimate-price-bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vehicles: MASTER_VEHICLES.map(v => ({
-            no: v.no,
-            name: v.name,
-            km: (v.no in kmOverride) ? kmOverride[v.no] : v.km,
-            acquired: v.acquired,
-            cost: v.cost,
-          })),
-        }),
-      })
-      const data = await res.json()
-      if (!data.ok) { setBulkMsg('推定失敗: ' + (data.error || '不明')); return }
-      setAaOverride(prev => {
-        const next = { ...prev }
-        for (const e of data.estimates) next[e.no] = e.estimatedAA
-        return next
-      })
-      setBulkMsg(`✓ ${data.count}台のAA相場を推定・反映しました（売却損益に自動反映済み）`)
-    } catch (e) {
-      setBulkMsg('通信エラー: ' + String(e))
-    } finally {
-      setBulkLoading(false)
-    }
-  }
   const selectedVehicle = selNo !== null ? vehicles.find(v=>v.no===selNo) : null
 
   const filters: {key:Filter;label:string}[] = [
@@ -130,29 +130,49 @@ export default function Home() {
     {key:'hasaa',label:'AA相場あり'},{key:'noaa',label:'AA未入力'},
   ]
 
+  // 推定ステータスバー
+  const statusBar = () => {
+    if (bulkStatus === 'loading') return (
+      <div className="flex items-center gap-2 px-4 py-2 bg-[#E6F1FB] border border-[#85B7EB] rounded-lg text-xs text-[#0C447C] mb-4">
+        <div className="w-3 h-3 border-2 border-[#0C447C] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+        Claude が全34台のAA相場を推定中… しばらくお待ちください
+      </div>
+    )
+    if (bulkStatus === 'done') return (
+      <div className="flex items-center justify-between px-4 py-2 bg-[#EAF3DE] border border-[#97C459] rounded-lg text-xs text-[#27500A] mb-4">
+        <span>✅ AI相場推定完了 — 全{kpi.withAA}台のAA相場を自動反映しました
+          {bulkEstimatedAt && <span className="text-[#5A5850] ml-2">({new Date(bulkEstimatedAt).toLocaleTimeString('ja-JP')} 時点)</span>}
+        </span>
+        <button onClick={runBulkEstimate} className="text-[#27500A] border border-[#97C459] rounded px-2 py-0.5 hover:bg-white transition-colors">
+          再推定
+        </button>
+      </div>
+    )
+    if (bulkStatus === 'error') return (
+      <div className="flex items-center justify-between px-4 py-2 bg-[#FCEBEB] border border-[#F09595] rounded-lg text-xs text-[#791F1F] mb-4">
+        <span>⚠️ AI推定に失敗しました（masterData.tsの固定値を表示中）: {bulkError}</span>
+        <button onClick={runBulkEstimate} className="text-[#791F1F] border border-[#F09595] rounded px-2 py-0.5 hover:bg-white transition-colors">
+          再試行
+        </button>
+      </div>
+    )
+    return null
+  }
+
   return (
     <div className="min-h-screen bg-[#F7F6F3]">
       <div className="max-w-[1280px] mx-auto px-5 py-6">
         <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-medium tracking-tight text-[#1A1916]">車両売却管理</h1>
-            <p className="text-xs mt-1 text-[#5A5850]">固定資産台帳連動 ｜ 簿価（200%定率法）× AA相場 × 税引後手取り ｜ 2026年8月</p>
+            <p className="text-xs mt-1 text-[#5A5850]">固定資産台帳連動 ｜ 簿価（200%定率法）× AI推定AA相場 × 税引後手取り ｜ 2026年8月</p>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex gap-2 flex-wrap justify-end">
-              <span className="text-[11px] px-3 py-1 rounded-full border bg-[#E6F1FB] text-[#0C447C] border-[#85B7EB]">全34台</span>
-              <span className="text-[11px] px-3 py-1 rounded-full border bg-[#EAF3DE] text-[#27500A] border-[#97C459]">AA相場 {kpi.withAA}台入力済</span>
-              <span className="text-[11px] px-3 py-1 rounded-full border border-[#E4E2DC] bg-white text-[#5A5850]">Fortune. / 賢英</span>
-            </div>
-            <button onClick={handleBulkEstimate} disabled={bulkLoading}
-              className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-[#0C447C] text-white hover:bg-[#185FA5] disabled:opacity-50 transition-colors">
-              {bulkLoading
-                ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />全台を推定中…</>
-                : <>✨ 全台AI一括推定（Claude）</>}
-            </button>
-            {bulkMsg && (
-              <div className={`text-[10px] max-w-xs text-right ${bulkMsg.startsWith('✓') ? 'text-[#27500A]' : 'text-[#791F1F]'}`}>{bulkMsg}</div>
-            )}
+          <div className="flex gap-2 flex-wrap">
+            <span className="text-[11px] px-3 py-1 rounded-full border bg-[#E6F1FB] text-[#0C447C] border-[#85B7EB]">全34台</span>
+            <span className={`text-[11px] px-3 py-1 rounded-full border ${bulkStatus==='loading'?'bg-[#FAEEDA] text-[#633806] border-[#EF9F27]':'bg-[#EAF3DE] text-[#27500A] border-[#97C459]'}`}>
+              {bulkStatus==='loading'?'AI推定中…':`AA相場 ${kpi.withAA}台反映済`}
+            </span>
+            <span className="text-[11px] px-3 py-1 rounded-full border border-[#E4E2DC] bg-white text-[#5A5850]">Fortune. / 賢英</span>
           </div>
         </div>
 
@@ -160,7 +180,7 @@ export default function Home() {
           <KpiCard label="取得価額合計" value={yenM(kpi.totalCost)} sub="全34台" />
           <KpiCard label="簿価合計" value={yenM(kpi.totalBV)} sub="帳簿上の資産価値" color="blue" />
           <KpiCard label="簿価＋補助金" value={yenM(kpi.totalBVS)} sub="実質コスト換算" color="amber" />
-          <KpiCard label="AA相場合計" value={kpi.withAA>0?yenM(kpi.totalAA):'−'} sub={`${kpi.withAA}台 / 全34台`} color="amber" />
+          <KpiCard label="AI推定AA相場合計" value={kpi.withAA>0?yenM(kpi.totalAA):'推定中…'} sub={`${kpi.withAA}台 / 全34台`} color="amber" />
           <KpiCard label="売却益合計（税前）" value={kpi.withAA>0?yenM(kpi.totalGain):'−'} sub="相場−簿価+補助金" color={kpi.totalGain>=0?'green':'red'} />
         </div>
 
@@ -175,6 +195,7 @@ export default function Home() {
 
         {tab==='list' && (
           <>
+            {statusBar()}
             <div className="flex gap-2 mb-3 flex-wrap items-center">
               {filters.map(({key,label})=>(
                 <button key={key} onClick={()=>{setFilter(key);setSelNo(null)}}
@@ -192,7 +213,6 @@ export default function Home() {
                   <option value="gain_asc">売却益 ↑</option>
                   <option value="bv_asc">簿価 ↑</option>
                   <option value="km_desc">走行距離 ↓</option>
-                  <option value="score_desc">売却スコア ↓</option>
                   <option value="priority">売却優先順位</option>
                 </select>
               </div>
@@ -202,7 +222,7 @@ export default function Home() {
               <table className="w-full border-collapse text-left" style={{minWidth:1080,tableLayout:'fixed'}}>
                 <thead>
                   <tr className="bg-[#F2F0EC] border-b border-[#E4E2DC]">
-                    {['No','所有','ナンバー / VIN','車種','走行距離','取得日','修正取得額','現在簿価','AA相場','売却損益','補助金','優先度','売却スコア','月償却額'].map(h=>(
+                    {['No','所有','ナンバー / VIN','車種','走行距離','取得日','修正取得額','現在簿価','AI推定AA相場','売却損益','補助金','優先度','月償却額'].map(h=>(
                       <th key={h} className="text-[10px] font-semibold tracking-widest uppercase text-[#5A5850] px-3 py-2.5 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -210,10 +230,12 @@ export default function Home() {
                 <tbody>
                   {rows.map(v=>{
                     const c=calcSale(v,settings)
-                    const sc=calcScore(v)
-                    const rating=scoreRating(sc.total)
                     const isSel=selNo===v.no
                     const gc=c.gain===null?'text-[#9A9890]':c.gain>=0?'text-[#27500A]':'text-[#791F1F]'
+                    const aaCell = bulkStatus==='loading'
+                      ? <span className="text-[#9A9890] text-[10px]">推定中…</span>
+                      : c.aa ? <span className="text-[#633806] font-medium">{yenM(c.aa)}</span>
+                      : <span className="text-[#9A9890]">−</span>
                     return (
                       <tr key={v.no} onClick={()=>setSelNo(selNo===v.no?null:v.no)}
                         className={`border-b border-[#E4E2DC] cursor-pointer transition-colors ${isSel?'bg-[#E6F1FB]':'hover:bg-[#F8F7F4]'}`}>
@@ -229,9 +251,7 @@ export default function Home() {
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-xs text-[#5A5850]">
-                          <span
-                            className="cursor-pointer hover:text-[#0C447C] hover:underline decoration-dotted"
-                            title="クリックで走行距離を入力"
+                          <span className="cursor-pointer hover:text-[#0C447C] hover:underline decoration-dotted" title="クリックで走行距離を入力"
                             onClick={e=>{
                               e.stopPropagation()
                               const val=prompt(`走行距離を入力（現在: ${v.km?v.km.toLocaleString()+'km':'未入力'}）`,'')
@@ -244,16 +264,12 @@ export default function Home() {
                         <td className="px-3 py-2.5 text-[11px] text-[#9A9890]">{v.acquired}</td>
                         <td className="px-3 py-2.5 text-xs text-[#5A5850]">{yenM(v.cost)}</td>
                         <td className="px-3 py-2.5 text-xs font-medium text-[#0C447C]">{yenM(v.book_value)}</td>
-                        <td className="px-3 py-2.5 text-xs font-medium text-[#633806]">{c.aa?yenM(c.aa):<span className="text-[#9A9890]">−</span>}</td>
-                        <td className={`px-3 py-2.5 text-xs font-medium ${gc}`}>{c.gain!==null?yenM(c.gain):'−'}</td>
+                        <td className="px-3 py-2.5 text-xs">{aaCell}</td>
+                        <td className={`px-3 py-2.5 text-xs font-medium ${gc}`}>
+                          {bulkStatus==='loading'?<span className="text-[#9A9890] text-[10px]">計算中…</span>:c.gain!==null?yenM(c.gain):'−'}
+                        </td>
                         <td className="px-3 py-2.5 text-xs text-[#5A5850]">{v.subsidy>0?yenM(v.subsidy):'−'}</td>
                         <td className="px-3 py-2.5"><PriorityBadge priority={v.priority} /></td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`inline-block text-[11px] font-bold px-1.5 py-0.5 rounded border ${SCORE_COLOR[rating.color]}`}>{sc.total}</span>
-                            <span className="text-[10px] text-[#9A9890]">{rating.label}</span>
-                          </div>
-                        </td>
                         <td className="px-3 py-2.5 text-xs text-[#5A5850]">{yenM(v.dep_monthly)}</td>
                       </tr>
                     )
@@ -288,10 +304,10 @@ export default function Home() {
             <div className="mt-5 p-4 bg-[#F2F0EC] rounded-lg text-xs text-[#5A5850] space-y-1.5 leading-relaxed">
               <div className="font-medium text-[#1A1916] mb-2">計算式（固定資産台帳連動）</div>
               <div>簿価 = スプレッドシートの「償却残高」をそのまま使用（200%定率法）</div>
+              <div>AA相場 = 画面起動時にClaudeが全台一括推定（再推定ボタンで更新可）</div>
               <div>売却損益① = AA相場 − 簿価のみ</div>
               <div>売却損益② = AA相場 − 簿価＋補助金（実質コスト換算）</div>
               <div>法人税負担 = 売却益 × 法人税率（益が出た場合のみ）</div>
-              <div>消費税 = AA相場 × 消費税率（買手負担・参考表示）</div>
               <div>税引後手取り = AA相場 − 法人税負担</div>
             </div>
           </div>
