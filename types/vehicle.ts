@@ -29,8 +29,8 @@ export type TaxSettings = {
 
 export type SaleCalc = {
   aa: number | null
-  gain: number | null       // AA - bv_subsidy
-  gain2: number | null      // AA - book_value
+  gain: number | null
+  gain2: number | null
   corp_tax_amount: number
   ct_amount: number | null
   take_home: number | null
