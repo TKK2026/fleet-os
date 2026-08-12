@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Vehicle, TaxSettings } from '@/types/vehicle'
 import { calcSale, yen, yenM, elapsedMonths } from '@/lib/calc'
 import { calcScore, scoreRating } from '@/lib/score'
+import { calcSubsidyReturn } from '@/lib/subsidyCalc'
 import DepreciationChart from './DepreciationChart'
 import { X, Zap, Sparkles, Loader2 } from 'lucide-react'
 
@@ -28,6 +29,7 @@ export default function DetailPanel({ vehicle: v, settings, onClose, onUpdateAA,
   const [aiResult, setAiResult] = useState<{ estimate: number; rationale: string; confidence: 'high' | 'medium' | 'low' } | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
   const c = calcSale(v, settings)
+  const subsidyCalc = calcSubsidyReturn(v, c.aa)
   const months = elapsedMonths(v.acquired)
   const sc = calcScore(v)
   const rating = scoreRating(sc.total)
@@ -172,15 +174,27 @@ export default function DetailPanel({ vehicle: v, settings, onClose, onUpdateAA,
                   { k: '売却損益①（相場−簿価）', v: yenM(c.gain2), cls: gainColor(c.gain2) },
                   { k: '売却損益②（相場−実質）', v: yenM(c.gain), cls: gainColor(c.gain) },
                   { k: `法人税負担（${settings.corp_tax}%）`, v: c.corp_tax_amount > 0 ? `△${yen(c.corp_tax_amount)}` : 'なし', cls: 'text-[#791F1F]' },
+                  { k: `CEV補助金返納額${subsidyCalc.isWithinObligation ? '（処分制限期間内）' : '（期間満了・返納不要）'}`, v: subsidyCalc.returnAmount && subsidyCalc.returnAmount > 0 ? `△${yen(subsidyCalc.returnAmount)}` : 'なし', cls: subsidyCalc.returnAmount && subsidyCalc.returnAmount > 0 ? 'text-[#791F1F]' : 'text-[#27500A]' },
                 ].map(({ k, v, cls }) => (
                   <div key={k} className="flex justify-between py-1.5 border-b border-[#E4E2DC] text-xs">
                     <span className="text-[#5A5850]">{k}</span><span className={`font-medium ${cls || ''}`}>{v}</span>
                   </div>
                 ))}
                 <div className="flex justify-between pt-2.5 text-sm font-semibold border-t-2 border-[#CFCDC6] mt-1">
-                  <span>税引後 手取り</span>
-                  <span className={gainColor(c.take_home)} style={{ fontSize: '16px' }}>{yenM(c.take_home)}</span>
+                  <span>税引後 手取り（法人税のみ）</span>
+                  <span className={gainColor(c.take_home)}>{yenM(c.take_home)}</span>
                 </div>
+                {subsidyCalc.hasSubsidy && (
+                  <div className="flex justify-between pt-1.5 text-sm font-bold border-t border-[#CFCDC6]" style={{color: c.take_home_after_subsidy !== null && c.take_home_after_subsidy >= 0 ? '#27500A' : '#791F1F'}}>
+                    <span>実質手取り（補助金返納後）</span>
+                    <span style={{fontSize:'16px'}}>{yenM(c.take_home_after_subsidy)}</span>
+                  </div>
+                )}
+                {subsidyCalc.hasSubsidy && subsidyCalc.isWithinObligation && (
+                  <div className="mt-2 p-2 bg-[#FAEEDA] rounded text-[10px] text-[#633806] leading-relaxed">
+                    ⚠️ {subsidyCalc.note}
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-xs text-[#9A9890] py-3">AA相場を入力すると損益内訳が表示されます</p>

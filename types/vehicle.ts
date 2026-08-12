@@ -15,9 +15,9 @@ export type Vehicle = {
   aa_price: number | null
   priority: string
   km: number | null
-  year?: number
   color: string
   dep_monthly: number
+  year?: number
   note?: string
   created_at?: string
   updated_at?: string
@@ -30,9 +30,11 @@ export type TaxSettings = {
 
 export type SaleCalc = {
   aa: number | null
-  gain: number | null
-  gain2: number | null
-  corp_tax_amount: number
-  ct_amount: number | null
-  take_home: number | null
+  gain: number | null           // 売却損益②（相場 − 簿価+補助金）
+  gain2: number | null          // 売却損益①（相場 − 簿価のみ）
+  corp_tax_amount: number       // 法人税負担
+  ct_amount: number | null      // 消費税（参考）
+  take_home: number | null      // 税引後手取り（法人税のみ）
+  subsidy_return: number        // CEV補助金返納額（NeV公式）
+  take_home_after_subsidy: number | null  // 実質手取り（法人税+補助金返納後）
 }
