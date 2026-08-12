@@ -4,7 +4,7 @@ import { Vehicle, TaxSettings } from '@/types/vehicle'
 import { calcSale, yen, yenM, elapsedMonths } from '@/lib/calc'
 import { calcScore, scoreRating } from '@/lib/score'
 import DepreciationChart from './DepreciationChart'
-import { X, Zap } from 'lucide-react'
+import { X, Zap, Sparkles, Loader2 } from 'lucide-react'
 
 const SCORE_BAR: Record<string, string> = {
   green: 'bg-[#639922]', amber: 'bg-[#EF9F27]', blue: 'bg-[#378ADD]', red: 'bg-[#E24B4A]',
@@ -24,6 +24,9 @@ type Props = {
 export default function DetailPanel({ vehicle: v, settings, onClose, onUpdateAA, onUpdateKm }: Props) {
   const [aaInput, setAaInput] = useState(v.aa_price ? String(v.aa_price) : '')
   const [kmInput, setKmInput] = useState(v.km !== null && v.km !== undefined ? String(v.km) : '')
+  const [estimating, setEstimating] = useState(false)
+  const [aiResult, setAiResult] = useState<{ estimate: number; rationale: string; confidence: 'high' | 'medium' | 'low' } | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
   const c = calcSale(v, settings)
   const months = elapsedMonths(v.acquired)
   const sc = calcScore(v)
@@ -39,6 +42,45 @@ export default function DetailPanel({ vehicle: v, settings, onClose, onUpdateAA,
     const val = parseInt(kmInput)
     if (isNaN(val) || val < 0) return
     onUpdateKm(v.no, val)
+  }
+
+  const handleEstimate = async () => {
+    setEstimating(true)
+    setAiError(null)
+    setAiResult(null)
+    try {
+      const res = await fetch('/api/estimate-aa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: v.name,
+          plate: v.plate,
+          km: v.km,
+          acquired: v.acquired,
+          cost: v.cost,
+          book_value: v.book_value,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setAiError(data?.error || '推定に失敗しました。')
+        return
+      }
+      setAiResult(data)
+      setAaInput(String(data.estimate))
+      onUpdateAA(v.no, data.estimate) // 相場欄に自動セット
+    } catch {
+      setAiError('通信エラーが発生しました。')
+    } finally {
+      setEstimating(false)
+    }
+  }
+
+  const CONF_LABEL: Record<string, string> = { high: '信頼度 高', medium: '信頼度 中', low: '信頼度 低' }
+  const CONF_CLS: Record<string, string> = {
+    high: 'bg-[#EAF3DE] text-[#27500A] border-[#97C459]',
+    medium: 'bg-[#FAEEDA] text-[#633806] border-[#EF9F27]',
+    low: 'bg-[#FCEBEB] text-[#791F1F] border-[#F09595]',
   }
 
   const gainColor = (n: number | null) =>
@@ -157,7 +199,24 @@ export default function DetailPanel({ vehicle: v, settings, onClose, onUpdateAA,
             <input type="number" value={aaInput} onChange={e => setAaInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleApply()} placeholder="例: 1400000" step={10000} className="flex-1 text-sm px-3 py-2 rounded-lg border border-[#CFCDC6] bg-white focus:outline-none focus:border-[#0C447C]" />
             <button onClick={handleApply} className="px-4 py-2 bg-[#1A1916] text-white text-xs rounded-lg hover:opacity-80 font-medium">更新</button>
           </div>
-          <div className="flex items-center gap-1 text-[10px] text-[#9A9890] mb-4"><Zap size={10} />将来的にオークション相場APIと連動予定</div>
+          <button onClick={handleEstimate} disabled={estimating}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 mb-2 rounded-lg text-xs font-medium border border-[#85B7EB] bg-[#E6F1FB] text-[#0C447C] hover:bg-[#d7e9fa] disabled:opacity-60 transition-colors">
+            {estimating ? <><Loader2 size={12} className="animate-spin" />AI推定中...</> : <><Sparkles size={12} />AIで相場を推定（Claude）</>}
+          </button>
+          {aiError && (
+            <div className="mb-3 p-2 rounded-lg border-l-4 border-[#E24B4A] bg-[#FCEBEB] text-[#791F1F] text-[10px]">{aiError}</div>
+          )}
+          {aiResult && (
+            <div className="mb-3 p-3 rounded-lg border border-[#E4E2DC] bg-white">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-[#0C447C]">AI推定値 ¥{aiResult.estimate.toLocaleString()}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${CONF_CLS[aiResult.confidence]}`}>{CONF_LABEL[aiResult.confidence]}</span>
+              </div>
+              <div className="text-[10px] text-[#5A5850] leading-relaxed">{aiResult.rationale}</div>
+              <div className="text-[10px] text-[#9A9890] mt-1.5">※相場欄に自動反映済み。査定士の判断で上書き可能です。</div>
+            </div>
+          )}
+          <div className="flex items-center gap-1 text-[10px] text-[#9A9890] mb-4"><Zap size={10} />オークション相場をClaude APIで推定 ｜ 車種・年式・走行距離・取得日から算出</div>
 
           <div className="border-t border-[#E4E2DC] pt-4 mb-4">
             <label className="text-xs text-[#5A5850] block mb-1.5 font-medium">走行距離（km）</label>
