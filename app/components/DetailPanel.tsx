@@ -2,8 +2,16 @@
 import { useState } from 'react'
 import { Vehicle, TaxSettings } from '@/types/vehicle'
 import { calcSale, yen, yenM, elapsedMonths } from '@/lib/calc'
+import { calcScore, scoreRating } from '@/lib/score'
 import DepreciationChart from './DepreciationChart'
 import { X, Zap } from 'lucide-react'
+
+const SCORE_BAR: Record<string, string> = {
+  green: 'bg-[#639922]', amber: 'bg-[#EF9F27]', blue: 'bg-[#378ADD]', red: 'bg-[#E24B4A]',
+}
+const SCORE_TEXT: Record<string, string> = {
+  green: 'text-[#27500A]', amber: 'text-[#633806]', blue: 'text-[#0C447C]', red: 'text-[#791F1F]',
+}
 
 type Props = {
   vehicle: Vehicle
@@ -18,6 +26,8 @@ export default function DetailPanel({ vehicle: v, settings, onClose, onUpdateAA,
   const [kmInput, setKmInput] = useState(v.km !== null && v.km !== undefined ? String(v.km) : '')
   const c = calcSale(v, settings)
   const months = elapsedMonths(v.acquired)
+  const sc = calcScore(v)
+  const rating = scoreRating(sc.total)
 
   const handleApply = () => {
     const val = parseFloat(aaInput)
@@ -59,6 +69,34 @@ export default function DetailPanel({ vehicle: v, settings, onClose, onUpdateAA,
             <div className="text-[10px] text-[#9A9890] mt-0.5">{sub}</div>
           </div>
         ))}
+      </div>
+
+      <div className="mb-4 bg-[#F2F0EC] border border-[#E4E2DC] rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[10px] font-semibold tracking-widest uppercase text-[#5A5850]">売却スコア（100点満点）</div>
+          <div className="flex items-baseline gap-2">
+            <span className={`text-2xl font-bold ${SCORE_TEXT[rating.color]}`}>{sc.total}</span>
+            <span className={`text-xs font-medium ${SCORE_TEXT[rating.color]}`}>{rating.label}</span>
+          </div>
+        </div>
+        {!sc.hasAA && <div className="text-[10px] text-[#791F1F] mb-2">※AA相場が未入力のため①簿価乖離率は0点です。査定額を入力すると再計算されます。</div>}
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            { k: '① 簿価乖離率', v: sc.bookGap, max: 30 },
+            { k: '② 走行距離リスク', v: sc.kmRisk, max: 25 },
+            { k: '③ 市場トレンド', v: sc.trend, max: 25 },
+            { k: '④ 経過月数', v: sc.elapsed, max: 20 },
+          ].map(({ k, v: val, max }) => (
+            <div key={k}>
+              <div className="flex justify-between text-[10px] text-[#5A5850] mb-1">
+                <span>{k}</span><span className="font-medium text-[#1A1916]">{val}<span className="text-[#9A9890]">/{max}</span></span>
+              </div>
+              <div className="h-2 bg-[#E4E2DC] rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${SCORE_BAR[rating.color]}`} style={{ width: `${Math.round((val / max) * 100)}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {!c.aa ? (

@@ -2,14 +2,22 @@
 import { useState, useMemo } from 'react'
 import { MASTER_VEHICLES } from '@/lib/masterData'
 import { calcSale, yen, yenM } from '@/lib/calc'
+import { calcScore, scoreRating } from '@/lib/score'
 import { Vehicle, TaxSettings } from '@/types/vehicle'
 import KpiCard from './components/KpiCard'
 import PriorityBadge from './components/PriorityBadge'
 import DetailPanel from './components/DetailPanel'
 import MarketPanel from './components/MarketPanel'
 
+const SCORE_COLOR: Record<string, string> = {
+  green: 'bg-[#EAF3DE] text-[#27500A] border-[#97C459]',
+  amber: 'bg-[#FAEEDA] text-[#633806] border-[#EF9F27]',
+  blue:  'bg-[#E6F1FB] text-[#0C447C] border-[#85B7EB]',
+  red:   'bg-[#FCEBEB] text-[#791F1F] border-[#F09595]',
+}
+
 type Filter = 'all' | 'fortune' | 'kenen' | 'atto3' | 'dolphin' | 'hasaa' | 'noaa'
-type SortKey = 'no' | 'gain_desc' | 'gain_asc' | 'bv_asc' | 'km_desc' | 'priority'
+type SortKey = 'no' | 'gain_desc' | 'gain_asc' | 'bv_asc' | 'km_desc' | 'priority' | 'score_desc'
 type Tab = 'list' | 'market' | 'settings'
 
 export default function Home() {
@@ -58,6 +66,7 @@ export default function Home() {
       if (sortKey === 'gain_asc')  return (ca.gain ?? Infinity)  - (cb.gain ?? Infinity)
       if (sortKey === 'bv_asc')    return a.book_value - b.book_value
       if (sortKey === 'km_desc')   return (b.km ?? 0) - (a.km ?? 0)
+      if (sortKey === 'score_desc') return calcScore(b).total - calcScore(a).total
       if (sortKey === 'priority') {
         const m: Record<string,number> = {'①':1,'②':2,'③':3,'④':4,'':9}
         return (m[a.priority]??9)-(m[b.priority]??9)
@@ -138,6 +147,7 @@ export default function Home() {
                   <option value="gain_asc">売却益 ↑</option>
                   <option value="bv_asc">簿価 ↑</option>
                   <option value="km_desc">走行距離 ↓</option>
+                  <option value="score_desc">売却スコア ↓</option>
                   <option value="priority">売却優先順位</option>
                 </select>
               </div>
@@ -147,7 +157,7 @@ export default function Home() {
               <table className="w-full border-collapse text-left" style={{minWidth:1080,tableLayout:'fixed'}}>
                 <thead>
                   <tr className="bg-[#F2F0EC] border-b border-[#E4E2DC]">
-                    {['No','所有','ナンバー / VIN','車種','走行距離','取得日','修正取得額','現在簿価','AA相場','売却損益','補助金','優先度','月償却額'].map(h=>(
+                    {['No','所有','ナンバー / VIN','車種','走行距離','取得日','修正取得額','現在簿価','AA相場','売却損益','補助金','優先度','売却スコア','月償却額'].map(h=>(
                       <th key={h} className="text-[10px] font-semibold tracking-widest uppercase text-[#5A5850] px-3 py-2.5 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -155,6 +165,8 @@ export default function Home() {
                 <tbody>
                   {rows.map(v=>{
                     const c=calcSale(v,settings)
+                    const sc=calcScore(v)
+                    const rating=scoreRating(sc.total)
                     const isSel=selNo===v.no
                     const gc=c.gain===null?'text-[#9A9890]':c.gain>=0?'text-[#27500A]':'text-[#791F1F]'
                     return (
@@ -191,6 +203,12 @@ export default function Home() {
                         <td className={`px-3 py-2.5 text-xs font-medium ${gc}`}>{c.gain!==null?yenM(c.gain):'−'}</td>
                         <td className="px-3 py-2.5 text-xs text-[#5A5850]">{v.subsidy>0?yenM(v.subsidy):'−'}</td>
                         <td className="px-3 py-2.5"><PriorityBadge priority={v.priority} /></td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`inline-block text-[11px] font-bold px-1.5 py-0.5 rounded border ${SCORE_COLOR[rating.color]}`}>{sc.total}</span>
+                            <span className="text-[10px] text-[#9A9890]">{rating.label}</span>
+                          </div>
+                        </td>
                         <td className="px-3 py-2.5 text-xs text-[#5A5850]">{yenM(v.dep_monthly)}</td>
                       </tr>
                     )
