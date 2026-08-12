@@ -9,7 +9,6 @@ export default function DepreciationChart({ vehicle, currentAA }: Props) {
   const maxYr = Math.min(life + 1, 7)
   const acqDate = new Date(acquired.replace(/\//g, '-'))
   const nowYr = (Date.now() - acqDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
-
   const rows = Array.from({ length: maxYr + 1 }, (_, yr) => {
     const bv = Math.max(0, cost * Math.pow(1 - rate, yr))
     const pBV = Math.round((bv / cost) * 100)
@@ -17,7 +16,6 @@ export default function DepreciationChart({ vehicle, currentAA }: Props) {
     const isNow = Math.abs(yr - nowYr) < 0.7
     return { yr, bv, pBV, pAA, isNow }
   })
-
   return (
     <div className="space-y-1.5">
       {rows.map(({ yr, bv, pBV, pAA, isNow }) => (
