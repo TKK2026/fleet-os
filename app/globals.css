@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #F7F6F3;
+  --surface: #FFFFFF;
+  --surface2: #F2F0EC;
+  --border: #E4E2DC;
+  --border2: #CFCDC6;
+  --text: #1A1916;
+  --text2: #5A5850;
+  --text3: #9A9890;
+  --blue: #0C447C;
+  --green: #27500A;
+  --red: #791F1F;
+  --amber: #633806;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Meiryo', sans-serif;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--surface2); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
