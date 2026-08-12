@@ -6,10 +6,11 @@ import { Vehicle, TaxSettings } from '@/types/vehicle'
 import KpiCard from './components/KpiCard'
 import PriorityBadge from './components/PriorityBadge'
 import DetailPanel from './components/DetailPanel'
+import MarketPanel from './components/MarketPanel'
 
 type Filter = 'all' | 'fortune' | 'kenen' | 'atto3' | 'dolphin' | 'hasaa' | 'noaa'
 type SortKey = 'no' | 'gain_desc' | 'gain_asc' | 'bv_asc' | 'km_desc' | 'priority'
-type Tab = 'list' | 'settings'
+type Tab = 'list' | 'market' | 'settings'
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>('list')
@@ -22,11 +23,20 @@ export default function Home() {
     MASTER_VEHICLES.forEach(v => { if (v.aa_price) init[v.no] = v.aa_price })
     return init
   })
+  const [kmOverride, setKmOverride] = useState<Record<number, number>>(() => {
+    const init: Record<number, number> = {}
+    MASTER_VEHICLES.forEach(v => { if (v.km !== null && v.km !== undefined) init[v.no] = v.km as number })
+    return init
+  })
   const [settings, setSettings] = useState<TaxSettings>({ corp_tax: 23.2, consumption_tax: 10 })
 
   const vehicles: Vehicle[] = useMemo(() =>
-    MASTER_VEHICLES.map(v => ({ ...v, aa_price: aaOverride[v.no] ?? null })),
-    [aaOverride]
+    MASTER_VEHICLES.map(v => ({
+      ...v,
+      aa_price: aaOverride[v.no] ?? null,
+      km: v.no in kmOverride ? kmOverride[v.no] : v.km,
+    })),
+    [aaOverride, kmOverride]
   )
 
   const rows = useMemo(() => {
@@ -68,6 +78,7 @@ export default function Home() {
   }, [vehicles, settings])
 
   const handleUpdateAA = (no: number, aa: number) => setAaOverride(prev=>({...prev,[no]:aa}))
+  const handleUpdateKm = (no: number, km: number) => setKmOverride(prev=>({...prev,[no]:km}))
   const selectedVehicle = selNo !== null ? vehicles.find(v=>v.no===selNo) : null
 
   const filters: {key:Filter;label:string}[] = [
@@ -79,13 +90,10 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#F7F6F3]">
       <div className="max-w-[1280px] mx-auto px-5 py-6">
-        {/* header */}
         <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-medium tracking-tight text-[#1A1916]">fleet-os</h1>
-            <p className="text-xs mt-1 text-[#5A5850]">
-              フォーチュンレンタカー 宮古島 ｜ 固定資産台帳連動 ｜ 簿価（200%定率法）× AA相場 × 税引後手取り ｜ 2026年8月
-            </p>
+            <h1 className="text-2xl font-medium tracking-tight text-[#1A1916]">車両売却管理</h1>
+            <p className="text-xs mt-1 text-[#5A5850]">固定資産台帳連動 ｜ 簿価（200%定率法）× AA相場 × 税引後手取り ｜ 2026年8月</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             <span className="text-[11px] px-3 py-1 rounded-full border bg-[#E6F1FB] text-[#0C447C] border-[#85B7EB]">全34台</span>
@@ -94,7 +102,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* KPI */}
         <div className="grid grid-cols-5 gap-3 mb-6">
           <KpiCard label="取得価額合計" value={yenM(kpi.totalCost)} sub="全34台" />
           <KpiCard label="簿価合計" value={yenM(kpi.totalBV)} sub="帳簿上の資産価値" color="blue" />
@@ -103,17 +110,15 @@ export default function Home() {
           <KpiCard label="売却益合計（税前）" value={kpi.withAA>0?yenM(kpi.totalGain):'−'} sub="相場−簿価+補助金" color={kpi.totalGain>=0?'green':'red'} />
         </div>
 
-        {/* tabs */}
         <div className="flex border-b border-[#E4E2DC] mb-4">
-          {(['list','settings'] as Tab[]).map(t=>(
+          {(['list','market','settings'] as Tab[]).map(t=>(
             <button key={t} onClick={()=>setTab(t)}
               className={`text-sm px-4 py-2 border-b-2 -mb-px transition-colors ${tab===t?'border-[#1A1916] text-[#1A1916] font-medium':'border-transparent text-[#5A5850] hover:text-[#1A1916]'}`}>
-              {t==='list'?'車両一覧':'税率・設定'}
+              {t==='list'?'車両一覧':t==='market'?'📈 市場相場':'税率・設定'}
             </button>
           ))}
         </div>
 
-        {/* LIST */}
         {tab==='list' && (
           <>
             <div className="flex gap-2 mb-3 flex-wrap items-center">
@@ -166,7 +171,19 @@ export default function Home() {
                             {v.name.replace('BYD ','')}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-xs text-[#5A5850]">{v.km?v.km.toLocaleString()+'km':'−'}</td>
+                        <td className="px-3 py-2.5 text-xs text-[#5A5850]">
+                          <span
+                            className="cursor-pointer hover:text-[#0C447C] hover:underline decoration-dotted"
+                            title="クリックで走行距離を入力"
+                            onClick={e=>{
+                              e.stopPropagation()
+                              const val=prompt(`走行距離を入力（現在: ${v.km?v.km.toLocaleString()+'km':'未入力'}）`,'')
+                              if(val===null) return
+                              const n=parseInt(val.replace(/,/g,''))
+                              if(!isNaN(n)&&n>=0) handleUpdateKm(v.no,n)
+                            }}
+                          >{v.km?v.km.toLocaleString()+'km':'− 入力'}</span>
+                        </td>
                         <td className="px-3 py-2.5 text-[11px] text-[#9A9890]">{v.acquired}</td>
                         <td className="px-3 py-2.5 text-xs text-[#5A5850]">{yenM(v.cost)}</td>
                         <td className="px-3 py-2.5 text-xs font-medium text-[#0C447C]">{yenM(v.book_value)}</td>
@@ -183,12 +200,13 @@ export default function Home() {
             </div>
 
             {selectedVehicle && (
-              <DetailPanel vehicle={selectedVehicle} settings={settings} onClose={()=>setSelNo(null)} onUpdateAA={handleUpdateAA} />
+              <DetailPanel vehicle={selectedVehicle} settings={settings} onClose={()=>setSelNo(null)} onUpdateAA={handleUpdateAA} onUpdateKm={handleUpdateKm} />
             )}
           </>
         )}
 
-        {/* SETTINGS */}
+        {tab==='market' && <MarketPanel />}
+
         {tab==='settings' && (
           <div className="bg-white border border-[#E4E2DC] rounded-xl p-6 shadow-sm max-w-2xl">
             <h2 className="text-sm font-medium mb-5">⚙ 税率・計算設定</h2>
