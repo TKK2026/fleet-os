@@ -37,6 +37,8 @@ export default function Home() {
     return init
   })
   const [settings, setSettings] = useState<TaxSettings>({ corp_tax: 23.2, consumption_tax: 10 })
+  const [bulkLoading, setBulkLoading] = useState(false)
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null)
 
   const vehicles: Vehicle[] = useMemo(() =>
     MASTER_VEHICLES.map(v => ({
@@ -88,6 +90,38 @@ export default function Home() {
 
   const handleUpdateAA = (no: number, aa: number) => setAaOverride(prev=>({...prev,[no]:aa}))
   const handleUpdateKm = (no: number, km: number) => setKmOverride(prev=>({...prev,[no]:km}))
+
+  const handleBulkEstimate = async () => {
+    setBulkLoading(true)
+    setBulkMsg(null)
+    try {
+      const res = await fetch('/api/estimate-price-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehicles: MASTER_VEHICLES.map(v => ({
+            no: v.no,
+            name: v.name,
+            km: (v.no in kmOverride) ? kmOverride[v.no] : v.km,
+            acquired: v.acquired,
+            cost: v.cost,
+          })),
+        }),
+      })
+      const data = await res.json()
+      if (!data.ok) { setBulkMsg('推定失敗: ' + (data.error || '不明')); return }
+      setAaOverride(prev => {
+        const next = { ...prev }
+        for (const e of data.estimates) next[e.no] = e.estimatedAA
+        return next
+      })
+      setBulkMsg(`✓ ${data.count}台のAA相場を推定・反映しました（売却損益に自動反映済み）`)
+    } catch (e) {
+      setBulkMsg('通信エラー: ' + String(e))
+    } finally {
+      setBulkLoading(false)
+    }
+  }
   const selectedVehicle = selNo !== null ? vehicles.find(v=>v.no===selNo) : null
 
   const filters: {key:Filter;label:string}[] = [
@@ -104,10 +138,21 @@ export default function Home() {
             <h1 className="text-2xl font-medium tracking-tight text-[#1A1916]">車両売却管理</h1>
             <p className="text-xs mt-1 text-[#5A5850]">固定資産台帳連動 ｜ 簿価（200%定率法）× AA相場 × 税引後手取り ｜ 2026年8月</p>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            <span className="text-[11px] px-3 py-1 rounded-full border bg-[#E6F1FB] text-[#0C447C] border-[#85B7EB]">全34台</span>
-            <span className="text-[11px] px-3 py-1 rounded-full border bg-[#EAF3DE] text-[#27500A] border-[#97C459]">AA相場 {kpi.withAA}台入力済</span>
-            <span className="text-[11px] px-3 py-1 rounded-full border border-[#E4E2DC] bg-white text-[#5A5850]">Fortune. / 賢英</span>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex gap-2 flex-wrap justify-end">
+              <span className="text-[11px] px-3 py-1 rounded-full border bg-[#E6F1FB] text-[#0C447C] border-[#85B7EB]">全34台</span>
+              <span className="text-[11px] px-3 py-1 rounded-full border bg-[#EAF3DE] text-[#27500A] border-[#97C459]">AA相場 {kpi.withAA}台入力済</span>
+              <span className="text-[11px] px-3 py-1 rounded-full border border-[#E4E2DC] bg-white text-[#5A5850]">Fortune. / 賢英</span>
+            </div>
+            <button onClick={handleBulkEstimate} disabled={bulkLoading}
+              className="flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg bg-[#0C447C] text-white hover:bg-[#185FA5] disabled:opacity-50 transition-colors">
+              {bulkLoading
+                ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />全台を推定中…</>
+                : <>✨ 全台AI一括推定（Claude）</>}
+            </button>
+            {bulkMsg && (
+              <div className={`text-[10px] max-w-xs text-right ${bulkMsg.startsWith('✓') ? 'text-[#27500A]' : 'text-[#791F1F]'}`}>{bulkMsg}</div>
+            )}
           </div>
         </div>
 
