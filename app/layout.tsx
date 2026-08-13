@@ -23,14 +23,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         }}>
           <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <svg viewBox="180 55 320 110" width="72" height="28" role="img" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <svg viewBox="180 55 320 110" width="72" height="28" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
                 <defs>
-                  <linearGradient id="ic1" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <linearGradient id="hg1" x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="#042C53"/>
                     <stop offset="50%" stopColor="#185FA5"/>
                     <stop offset="100%" stopColor="#378ADD"/>
                   </linearGradient>
-                  <linearGradient id="ic2" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <linearGradient id="hg2" x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="#042C53" stopOpacity="0"/>
                     <stop offset="20%" stopColor="#185FA5"/>
                     <stop offset="80%" stopColor="#378ADD"/>
@@ -38,8 +38,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   </linearGradient>
                 </defs>
                 <g transform="translate(180, 60)">
-                  <rect x="10" y="68" width="300" height="52" rx="8" fill="url(#ic1)"/>
-                  <path d="M 55 68 Q 70 30 110 20 L 230 20 Q 265 20 280 68 Z" fill="url(#ic1)"/>
+                  <rect x="10" y="68" width="300" height="52" rx="8" fill="url(#hg1)"/>
+                  <path d="M 55 68 Q 70 30 110 20 L 230 20 Q 265 20 280 68 Z" fill="url(#hg1)"/>
                   <rect x="290" y="90" width="24" height="20" rx="4" fill="#378ADD"/>
                   <rect x="6" y="90" width="20" height="20" rx="4" fill="#185FA5"/>
                   <path d="M 62 65 Q 74 36 108 26 L 180 26 L 180 65 Z" fill="#B5D4F4" opacity="0.6"/>
@@ -63,7 +63,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <circle cx="245" cy="122" r="8" fill="#378ADD"/>
                   <circle cx="75" cy="122" r="3" fill="#B5D4F4"/>
                   <circle cx="245" cy="122" r="3" fill="#B5D4F4"/>
-                  <rect x="0" y="154" width="320" height="2" rx="1" fill="url(#ic2)" opacity="0.6"/>
+                  <rect x="0" y="154" width="320" height="2" rx="1" fill="url(#hg2)" opacity="0.6"/>
                 </g>
               </svg>
               <span style={{
